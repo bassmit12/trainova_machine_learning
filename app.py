@@ -124,6 +124,54 @@ def evaluate():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/train', methods=['POST'])
+def train():
+    """Train the model using CSV data."""
+    try:
+        # Check if the request has a file
+        if 'file' in request.files:
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No selected file'}), 400
+            
+            # Save the uploaded file temporarily
+            temp_file_path = os.path.join(os.path.dirname(__file__), 'temp_training_data.csv')
+            file.save(temp_file_path)
+            
+            # Read the CSV into a DataFrame
+            import pandas as pd
+            training_data = pd.read_csv(temp_file_path)
+            
+            # Clean up the temporary file
+            os.remove(temp_file_path)
+        elif request.json and 'use_sample_data' in request.json and request.json['use_sample_data']:
+            # Use sample/pretraining data
+            sample_data_path = os.path.join('trainova_ml', 'data', 'datasets', 'pretraining_data.csv')
+            
+            if not os.path.exists(sample_data_path):
+                return jsonify({'error': 'Sample training data not found'}), 404
+                
+            training_data = pd.read_csv(sample_data_path)
+        else:
+            return jsonify({'error': 'No training data provided. Either upload a CSV file or set use_sample_data to true'}), 400
+            
+        # Get the model type from the request if specified
+        if request.json and 'model_type' in request.json:
+            model_type = request.json['model_type']
+            if model_type not in ['random_forest', 'neural_network', 'lstm']:
+                return jsonify({'error': f'Invalid model type: {model_type}'}), 400
+                
+            # Switch to the requested model type if different from current
+            if model_type != predictor.model_type:
+                predictor.switch_model_type(model_type)
+        
+        # Train the model
+        result = predictor.fit_model(training_data)
+        return jsonify(result), 200
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     # Load environment variables
     port = int(os.environ.get('PORT', 5010))
