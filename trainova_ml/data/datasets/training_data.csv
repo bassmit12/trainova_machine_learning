@@ -1,0 +1,4 @@
+exercise,weight,reps,sets,date,rir,rpe,success
+Bench Press,100.0,5,1,2025-06-10,0,,True
+Bench Press,150.0,8,1,2025-06-12,1,True
+Bench Press,150.0,5,1,2025-06-12,1,True

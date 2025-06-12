@@ -1,0 +1,13 @@
+version: "3"
+
+services:
+  trainova:
+    build: .
+    image: trainova-ml
+    container_name: trainova-ml
+    volumes:
+      - ./trainova_ml/data/models:/app/trainova_ml/data/models
+      - ./trainova_ml/data/datasets:/app/trainova_ml/data/datasets
+    # By default, it will run with the entrypoint defined in Dockerfile
+    # You can override with specific commands like:
+    # command: ["predict", "--model", "nn", "--input", "input_data.csv"]
