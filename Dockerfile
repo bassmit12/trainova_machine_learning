@@ -12,11 +12,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV PORT=5010
 
 # Create volume mount points for data persistence
 VOLUME ["/app/trainova_ml/data/models", "/app/trainova_ml/data/datasets"]
 
-# Command to run the application
-ENTRYPOINT ["python", "trainova-cli.py"]
+# Expose the port the app runs on
+EXPOSE 5010
+
+# Command to run the production server
+CMD ["python", "run_production.py"]

@@ -1,13 +1,35 @@
-version: "3"
+version: "3.8"
 
 services:
-  trainova:
-    build: .
+  trainova-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: trainova-ml
-    container_name: trainova-ml
+    container_name: trainova-ml-api
+    ports:
+      - "5010:5010"
     volumes:
-      - ./trainova_ml/data/models:/app/trainova_ml/data/models
-      - ./trainova_ml/data/datasets:/app/trainova_ml/data/datasets
-    # By default, it will run with the entrypoint defined in Dockerfile
-    # You can override with specific commands like:
-    # command: ["predict", "--model", "nn", "--input", "input_data.csv"]
+      # Mount data directory to persist model and training data
+      - trainova_data:/app/trainova_ml/data
+    restart: unless-stopped
+    environment:
+      - PORT=5010
+      - FLASK_ENV=production
+
+  trainova-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trainova-ml
+    container_name: trainova-ml-cli
+    volumes:
+      - trainova_data:/app/trainova_ml/data
+    entrypoint: ["python", "trainova-cli.py"]
+    profiles: ["cli"]
+    # CLI container won't start by default, use profiles to run it:
+    # docker-compose --profile cli run trainova-cli predict --exercise "Bench Press"
+
+volumes:
+  trainova_data:
+    # This creates a named volume to persist data between container restarts

@@ -207,6 +207,117 @@ trainova_machine_learning_v2/
 │       └── models/         # Saved models
 ```
 
+## API Usage
+
+Trainova ML now provides a RESTful API to access the neural network model via HTTP requests, making it easier to integrate with other applications.
+
+### Running the API
+
+With Docker:
+
+```bash
+# Start the API server
+docker-compose up
+
+# To stop the API server
+docker-compose down
+```
+
+Without Docker:
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the API server
+python app.py
+```
+
+### API Endpoints
+
+#### Health Check
+
+```
+GET /health
+```
+
+Verify the API is running and which model type is being used.
+
+#### Predict Workout
+
+```
+POST /predict
+```
+
+Make a prediction for the next workout weight.
+
+Example request:
+
+```json
+{
+  "exercise": "Bench Press",
+  "last_weight": 70,
+  "reps": 5,
+  "intensity": 8
+}
+```
+
+#### Record Feedback
+
+```
+POST /feedback
+```
+
+Record user feedback about a prediction.
+
+Example request:
+
+```json
+{
+  "exercise": "Bench Press",
+  "predicted_weight": 72.5,
+  "actual_weight": 70,
+  "success": true,
+  "reps": 5,
+  "rir": 2
+}
+```
+
+#### Switch Model
+
+```
+POST /switch-model
+```
+
+Switch to a different model type.
+
+Example request:
+
+```json
+{
+  "model_type": "lstm"
+}
+```
+
+#### Evaluate Model
+
+```
+POST /evaluate
+```
+
+Evaluate the model with test data. Send a CSV file with the field name 'file'.
+
+### Using the CLI with Docker
+
+With the new API setup, you can still use the CLI tool:
+
+```bash
+# Run CLI commands with Docker
+docker-compose --profile cli run trainova-cli predict --exercise "Bench Press"
+docker-compose --profile cli run trainova-cli pretrain --generate-mock --samples 1000
+docker-compose --profile cli run trainova-cli evaluate
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
