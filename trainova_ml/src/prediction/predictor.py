@@ -144,104 +144,251 @@ class MLWorkoutPredictor:
         try:
             # Check if the model has been trained
             if not hasattr(self, 'feature_columns') or self.feature_columns is None:
-                raise ValueError("Model has not been trained yet - no feature columns available")
-                
-            # Check if the exercise was in our training data
-            if not hasattr(self, 'trained_exercises') or exercise not in self.trained_exercises:
-                # For new exercises, we'll fall back to a simpler prediction method
-                return {
-                    'predicted_weight': last_weight * 1.02,  # 2% increase
-                    'confidence': 0.3,
-                    'suggested_reps': 5,
-                    'message': f"New exercise detected. Try increasing to {last_weight * 1.02:.1f}kg for your next workout.",
-                    'method': 'new_exercise_fallback'
-                }
-                
-            # Extract features for this workout
-            features = extract_workout_features(user_df)
+                # Load existing training data and train the model if not already trained
+                training_data = self._load_all_training_data()
+                if not training_data.empty:
+                    self.fit_model(training_data)
+                else:
+                    return {
+                        "predicted_weight": last_weight + 2.5,
+                        "confidence": 0.3,
+                        "message": "No training data available. Using simple progression.",
+                        "suggested_reps": [8],
+                        "suggested_sets": 3
+                    }
             
-            # Create a DataFrame with all expected columns initialized to 0
-            prediction_features = pd.DataFrame(0, index=[0], columns=self.feature_columns)
+            # Get the last 10 sets of exercise history for this exercise
+            exercise_history = self._get_exercise_history(exercise, limit=10)
             
-            # Fill in values for columns that exist in the features DataFrame
-            for col in features.columns:
-                if col in prediction_features.columns:
-                    prediction_features[col] = features[col].values
-            
-            # Handle exercise one-hot encoding specifically
-            for col in prediction_features.columns:
-                if col.startswith('exercise_'):
-                    prediction_features[col] = 0
-            
-            # Set the current exercise column to 1
-            exercise_col = f'exercise_{exercise}'
-            if exercise_col in prediction_features.columns:
-                prediction_features[exercise_col] = 1
-            
-            # Fill any remaining NaN values
-            features = prediction_features.fillna(0)
-            
-            # Make prediction
-            prediction = self.model.predict(features)[0]
-            
-            # Sanity check: prediction shouldn't be too far from last weight
-            # Prevent unrealistic low predictions
-            if prediction < last_weight * 0.9:  # If prediction is more than 10% lower
-                # Use a more conservative approach: 98-100% of last weight
-                prediction = last_weight * (0.98 + np.random.random() * 0.02)
-                confidence = 0.30  # Lower confidence for this adjusted prediction
-            # Prevent unrealistic high predictions
-            elif prediction > last_weight * 1.1:  # If prediction is more than 10% higher
-                # Use a more conservative approach: 2-5% increase
-                prediction = last_weight * (1.02 + np.random.random() * 0.03)
-                confidence = 0.35  # Lower confidence for this adjusted prediction
-            else:
-                # For predictions within reasonable range, use higher confidence
-                confidence = 0.65
-            
-            # Determine if we should increase, decrease, or maintain the weight
-            if prediction > last_weight:
-                message = f"Try increasing to {prediction:.1f}kg for your next workout."
-            elif prediction < last_weight:
-                message = f"Consider decreasing to {prediction:.1f}kg for your next workout."
-            else:
-                message = f"Maintain current weight of {prediction:.1f}kg for your next workout."
-            
-            # Calculate suggested reps based on prediction vs last weight
-            suggested_reps = 5  # Default suggestion
-            
-            result = {
-                'predicted_weight': prediction,
-                'confidence': confidence,
-                'suggested_reps': suggested_reps,
-                'message': message,
-                'method': 'model_prediction'
-            }
-            
-            # Include debug information if requested
             if debug:
-                result['debug_info'] = {
-                    'features': features.to_dict(),
-                    'model_params': self.model.get_params()
-                }
+                print(f"\nDebug - Processing {len(exercise_history)} recent sets for {exercise}")
+                if len(exercise_history) > 0:
+                    print(f"Latest set: {exercise_history[-1]['weight']}kg x {exercise_history[-1]['reps']} reps")
+                    print(f"Date range: {exercise_history[0]['date']} to {exercise_history[-1]['date']}")
             
-            return result
-        except Exception as e:
-            print(f"Prediction error: {e}")
-            
-            # Fallback prediction based on last weight
-            # Simple 1-2% increase as fallback
-            fallback_prediction = last_weight * 1.017
+            # If we have historical data, use it for prediction
+            if len(exercise_history) >= 3:
+                # Extract features from the last 10 sets
+                features_df = self._extract_features_from_history(exercise_history, exercise)
+                
+                if debug:
+                    print(f"Extracted features shape: {features_df.shape}")
+                    print(f"Feature columns: {list(features_df.columns)}")
+                
+                # Make prediction using the model
+                prediction = self.model.predict(features_df)
+                predicted_weight = float(prediction[0]) if len(prediction) > 0 else last_weight + 2.5
+                
+                # Calculate confidence based on data quality and model performance
+                confidence = self._calculate_confidence(exercise_history, predicted_weight)
+                
+                # Generate suggested reps based on progression
+                suggested_reps = self._generate_rep_suggestions(exercise_history, predicted_weight)
+                
+                # Ensure minimum progression
+                if predicted_weight <= last_weight:
+                    predicted_weight = last_weight + 2.5
+                
+                # Round to nearest 2.5kg increment
+                predicted_weight = round(predicted_weight / 2.5) * 2.5
+                
+                message = f"Prediction based on {len(exercise_history)} recent sets"
+                
+                if debug:
+                    print(f"Final prediction: {predicted_weight}kg with {confidence:.2f} confidence")
+                
+            else:
+                # Fallback for insufficient data
+                predicted_weight = last_weight + 2.5
+                confidence = 0.4
+                suggested_reps = [8]
+                message = "Limited data available. Using conservative progression."
+                
+                if debug:
+                    print(f"Insufficient data ({len(exercise_history)} sets). Using fallback prediction.")
             
             return {
-                'predicted_weight': fallback_prediction,
-                'confidence': 0.40,
-                'suggested_reps': 5,
-                'message': f"Try increasing to {fallback_prediction:.1f}kg for your next workout.",
-                'method': 'fallback',
-                'last_weight': last_weight,
-                'error': str(e)
+                "predicted_weight": predicted_weight,
+                "confidence": confidence,
+                "message": message,
+                "suggested_reps": suggested_reps,
+                "suggested_sets": 3,
+                "analysis": {
+                    "data_points": len(exercise_history),
+                    "last_weight": last_weight,
+                    "progression": predicted_weight - last_weight
+                } if debug else None
             }
+
+        except Exception as e:
+            if debug:
+                print(f"Error in prediction: {str(e)}")
+            
+            return {
+                "predicted_weight": last_weight + 2.5,
+                "confidence": 0.2,
+                "message": f"Prediction error: {str(e)}. Using fallback.",
+                "suggested_reps": [8],
+                "suggested_sets": 3
+            }
+    
+    def _get_exercise_history(self, exercise: str, limit: int = None) -> List[Dict]:
+        """
+        Get ALL workout sets for a specific exercise (no limit for optimal predictions)
+        
+        Args:
+            exercise: Exercise name
+            limit: Ignored - we use all available data for optimal predictions
+            
+        Returns:
+            List of ALL workout sets for the exercise
+        """
+        try:
+            # Load all training data
+            all_data = self._load_all_training_data()
+            
+            if all_data.empty:
+                return []
+            
+            # Filter for the specific exercise
+            exercise_data = all_data[all_data['exercise'] == exercise]
+            
+            if exercise_data.empty:
+                return []
+            
+            # Sort by date and return ALL records (no limit)
+            exercise_data = exercise_data.sort_values('date' if 'date' in exercise_data.columns else exercise_data.index)
+            
+            # Convert ALL data to list of dictionaries
+            return exercise_data.to_dict('records')
+            
+        except Exception as e:
+            print(f"Error getting exercise history: {e}")
+            return []
+    
+    def _extract_features_from_history(self, history: List[Dict], exercise: str) -> pd.DataFrame:
+        """
+        Extract features from exercise history for model prediction
+        
+        Args:
+            history: List of workout records
+            exercise: Exercise name
+            
+        Returns:
+            DataFrame with extracted features
+        """
+        if not history:
+            return pd.DataFrame()
+        
+        # Convert to DataFrame for easier manipulation
+        df = pd.DataFrame(history)
+        
+        # Ensure required columns exist
+        required_cols = ['weight', 'reps']
+        for col in required_cols:
+            if col not in df.columns:
+                df[col] = 0
+        
+        # Calculate features
+        features = {
+            'last_weight': df['weight'].iloc[-1],
+            'last_reps': df['reps'].iloc[-1],
+            'avg_weight': df['weight'].mean(),
+            'max_weight': df['weight'].max(),
+            'weight_progression': (df['weight'].iloc[-1] - df['weight'].iloc[0]) if len(df) > 1 else 0,
+            'avg_reps': df['reps'].mean(),
+            'total_volume': (df['weight'] * df['reps']).sum(),
+            'consistency_score': 1.0 / (1.0 + df['weight'].std()) if len(df) > 1 else 1.0,
+            'session_count': len(df),
+            'exercise_encoded': hash(exercise) % 1000  # Simple exercise encoding
+        }
+        
+        # Add time-based features if date is available
+        if 'date' in df.columns:
+            try:
+                df['date'] = pd.to_datetime(df['date'])
+                features['days_since_last'] = (pd.Timestamp.now() - df['date'].iloc[-1]).days
+                features['training_frequency'] = len(df) / max(1, (df['date'].iloc[-1] - df['date'].iloc[0]).days)
+            except:
+                features['days_since_last'] = 7  # Default
+                features['training_frequency'] = 0.5  # Default
+        else:
+            features['days_since_last'] = 7
+            features['training_frequency'] = 0.5
+        
+        # Convert to DataFrame
+        features_df = pd.DataFrame([features])
+        
+        # Ensure all feature columns are present (pad with zeros if needed)
+        if hasattr(self, 'feature_columns'):
+            for col in self.feature_columns:
+                if col not in features_df.columns:
+                    features_df[col] = 0
+            
+            # Reorder columns to match training data
+            features_df = features_df.reindex(columns=self.feature_columns, fill_value=0)
+        
+        return features_df
+    
+    def _calculate_confidence(self, history: List[Dict], predicted_weight: float) -> float:
+        """
+        Calculate confidence score based on data quality and prediction
+        
+        Args:
+            history: Exercise history
+            predicted_weight: Predicted weight
+            
+        Returns:
+            Confidence score between 0 and 1
+        """
+        if not history:
+            return 0.2
+        
+        base_confidence = 0.4
+        
+        # Data quantity factor
+        data_factor = min(len(history) / 10, 0.3)  # Max 0.3 bonus for 10+ data points
+        
+        # Consistency factor
+        weights = [h['weight'] for h in history]
+        consistency_factor = 1.0 / (1.0 + np.std(weights)) * 0.2 if len(weights) > 1 else 0.1
+        
+        # Recency factor (if we have dates)
+        recency_factor = 0.1  # Default
+        
+        total_confidence = base_confidence + data_factor + consistency_factor + recency_factor
+        return min(total_confidence, 1.0)
+    
+    def _generate_rep_suggestions(self, history: List[Dict], predicted_weight: float) -> List[int]:
+        """
+        Generate rep suggestions based on history and predicted weight
+        
+        Args:
+            history: Exercise history
+            predicted_weight: Predicted weight
+            
+        Returns:
+            List of suggested reps
+        """
+        if not history:
+            return [8]
+        
+        # Analyze recent rep patterns
+        recent_reps = [h.get('reps', 8) for h in history[-3:]]  # Last 3 sets
+        avg_reps = sum(recent_reps) / len(recent_reps)
+        
+        # Base suggestion on average, with some variation
+        if avg_reps >= 10:
+            suggested_reps = [8, 6, 5]  # Suggest fewer reps for strength
+        elif avg_reps <= 5:
+            suggested_reps = [6, 8, 10]  # Suggest more reps for volume
+        else:
+            suggested_reps = [int(avg_reps), int(avg_reps) - 1, int(avg_reps) + 1]
+        
+        # Ensure reps are in reasonable range
+        suggested_reps = [max(3, min(15, rep)) for rep in suggested_reps]
+        
+        return suggested_reps[:3]  # Return top 3 suggestions
     
     def record_feedback(self, exercise: str, predicted_weight: float, actual_weight: float, 
                       success: bool, reps: int = None, rir: int = None) -> Dict[str, Any]:
