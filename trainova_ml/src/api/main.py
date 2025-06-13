@@ -49,11 +49,31 @@ def predict():
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        # Required fields
-        required_fields = ['exercise', 'last_weight']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
+        # Check for exercise field
+        if 'exercise' not in data:
+            return jsonify({'error': 'Missing required field: exercise'}), 400
+        
+        # Handle two different API formats:
+        # Format 1: Traditional format with last_weight
+        # Format 2: Feedback network format with previous_workouts
+        
+        if 'previous_workouts' in data and data['previous_workouts']:
+            # Format 2: Extract last_weight from previous_workouts
+            previous_workouts = data['previous_workouts']
+            if not previous_workouts:
+                return jsonify({'error': 'No previous workout data provided'}), 400
+            
+            # Get the last weight from the most recent workout
+            last_workout = previous_workouts[-1]
+            if 'weight' not in last_workout:
+                return jsonify({'error': 'Missing weight in previous workout data'}), 400
+            
+            # Add last_weight to the data for the predictor
+            data['last_weight'] = float(last_workout['weight'])
+            
+        elif 'last_weight' not in data:
+            # Neither format provided
+            return jsonify({'error': 'Missing required field: last_weight or previous_workouts'}), 400
         
         # Make prediction
         result = predictor.predict_workout(data)
